@@ -12,6 +12,7 @@
     <Compile Include="ViewModel.fs" />
     <Compile Include="ViewModelUtilities.fs" />
     <Compile Include="Program.fs" />
+    <None Include="Script.fsx" />
     <None Include="paket.references" />
   </ItemGroup>
   <ItemGroup>

@@ -269,3 +269,40 @@ module Binding =
             getBoxedBindings,
             boxedToMsg )
     }
+
+  let multiSubModelSeq
+      (getModels: 'model -> #seq<'subModelUnion>)
+      (getId: 'subModel -> 'id)
+      (name: string) =
+    { Name = name
+      Data =
+        MultiSubModelSeqSpec
+          ( getModels >> Seq.map box,
+            unbox >> getId >> box,
+            []) }
+
+  let addSubModel
+      (tryGetSubModel: 'subModelUnion -> 'subModel option)
+      (bindings: unit -> BindingSpec<'subModel, 'subMsg> list)
+      (toMsg: ('id * 'subMsg) -> 'msg)
+      (bindingSpec: BindingSpec<'model,'msg>) =
+    match bindingSpec.Data with
+    |  MultiSubModelSeqSpec (getModels, getId, subModelSpecs) ->
+      let getBoxedBindings () =
+        bindings ()
+        |> List.map (fun spec ->
+             {  Name = spec.Name;
+                Data = spec.Data
+                       |> BindingSpecData.map (tryGetSubModel >> Option.get)
+                       |> BindingSpecData.box  }
+        )
+      let boxedToMsg (id: obj, msg: obj) = toMsg (unbox id, unbox msg)
+      let boxedGetSubModel = unbox >> tryGetSubModel >> Option.map box
+      let boxedSubModelSpec = (boxedGetSubModel, getBoxedBindings, boxedToMsg)
+      { bindingSpec
+        with Data =
+             MultiSubModelSeqSpec
+              ( getModels,
+                getId,
+                boxedSubModelSpec :: subModelSpecs) }
+    | _ -> failwith "bindingSpec.Data must be of MultiSubModelSeqSpec case"

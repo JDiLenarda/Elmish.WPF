@@ -40,6 +40,11 @@ type BindingSpecData<'model, 'msg> =
       * getId: (obj -> obj)
       * getBindings: (unit -> BindingSpec<obj, obj> list)
       * toMsg: (obj * obj -> 'msg)
+  | MultiSubModelSeqSpec of
+      getModels: ('model -> obj seq)
+      * getId: (obj -> obj)
+      * subModelSpecs: ((obj -> obj option) * (*(obj -> obj) **) (unit -> BindingSpec<obj, obj> list) * (obj * obj -> 'msg)) list
+      
 
 /// Represents all necessary data used to create a binding.
 and BindingSpec<'model, 'msg> =
@@ -50,28 +55,64 @@ and BindingSpec<'model, 'msg> =
 module BindingSpecData =
 
   let box : BindingSpecData<'model, 'msg> -> BindingSpecData<obj, obj> = function
-  | OneWaySpec get -> OneWaySpec (unbox >> get)
-  | OneWayLazySpec (get, map, equals) -> OneWayLazySpec (unbox >> get, map, equals)
-  | OneWaySeqSpec (get, getId, equals) -> OneWaySeqSpec (unbox >> get, getId, equals)
-  | TwoWaySpec (get, set) ->
-      TwoWaySpec (unbox >> get, (fun v m -> set v (unbox m) |> box))
-  | TwoWayValidateSpec (get, set, validate) ->
-      let boxedSet v m = set v (unbox m) |> box
-      TwoWayValidateSpec (unbox >> get, boxedSet, unbox >> validate)
-  | TwoWayIfValidSpec (get, set) ->
-      let boxedSet v m = set v (unbox m) |> Result.map box
-      TwoWayIfValidSpec (unbox >> get, boxedSet)
-  | CmdSpec (exec, canExec) -> CmdSpec (unbox >> exec >> box, unbox >> canExec)
-  | CmdIfValidSpec exec -> CmdIfValidSpec (unbox >> exec >> Result.map box)
-  | ParamCmdSpec (exec, canExec, autoRequery) ->
-      let boxedExec p m = exec p (unbox m) |> box
-      let boxedCanExec p m = canExec p (unbox m)
-      ParamCmdSpec (boxedExec, boxedCanExec, autoRequery)
-  | SubModelSpec (getModel, getBindings, toMsg) ->
-      SubModelSpec (unbox >> getModel, getBindings, toMsg >> unbox)
-  | SubModelSeqSpec (getModel, isSame, getBindings, toMsg) ->
-      SubModelSeqSpec (unbox >> getModel, isSame, getBindings, toMsg >> unbox)
+    | OneWaySpec get -> OneWaySpec (unbox >> get)
+    | OneWayLazySpec (get, map, equals) -> OneWayLazySpec (unbox >> get, map, equals)
+    | OneWaySeqSpec (get, getId, equals) -> OneWaySeqSpec (unbox >> get, getId, equals)
+    | TwoWaySpec (get, set) ->
+        TwoWaySpec (unbox >> get, (fun v m -> set v (unbox m) |> box))
+    | TwoWayValidateSpec (get, set, validate) ->
+        let boxedSet v m = set v (unbox m) |> box
+        TwoWayValidateSpec (unbox >> get, boxedSet, unbox >> validate)
+    | TwoWayIfValidSpec (get, set) ->
+        let boxedSet v m = set v (unbox m) |> Result.map box
+        TwoWayIfValidSpec (unbox >> get, boxedSet)
+    | CmdSpec (exec, canExec) -> CmdSpec (unbox >> exec >> box, unbox >> canExec)
+    | CmdIfValidSpec exec -> CmdIfValidSpec (unbox >> exec >> Result.map box)
+    | ParamCmdSpec (exec, canExec, autoRequery) ->
+        let boxedExec p m = exec p (unbox m) |> box
+        let boxedCanExec p m = canExec p (unbox m)
+        ParamCmdSpec (boxedExec, boxedCanExec, autoRequery)
+    | SubModelSpec (getModel, getBindings, toMsg) ->
+        SubModelSpec (unbox >> getModel, getBindings, toMsg >> unbox)
+    | SubModelSeqSpec (getModel, isSame, getBindings, toMsg) ->
+        SubModelSeqSpec (unbox >> getModel, isSame, getBindings, toMsg >> unbox)
+    | MultiSubModelSeqSpec (getModels, getId, subModelSpecs) ->
+        let subModelSpecs' =
+            subModelSpecs
+            |> List.map (fun (tryGetModel, bindings, toMsg) ->
+                tryGetModel, bindings, toMsg >> unbox)
+        MultiSubModelSeqSpec (unbox >> getModels, getId, subModelSpecs')
 
+  let map (unmapModel: '_model -> 'model)
+          //(mapModel: 'model -> '_model)
+          : BindingSpecData<'model, 'msg> -> BindingSpecData<'_model, 'msg> = function
+    | OneWaySpec get -> OneWaySpec (unmapModel >> get)
+    | OneWayLazySpec (get, map, equals) -> OneWayLazySpec (unmapModel >> get, map, equals)
+    | OneWaySeqSpec (get, getId, equals) -> OneWaySeqSpec (unmapModel >> get, getId, equals)
+    | TwoWaySpec (get, set) ->
+        TwoWaySpec (unmapModel >> get, (fun v m -> set v (unmapModel m) |> id))
+    | TwoWayValidateSpec (get, set, validate) ->
+        let boxedSet v m = set v (unmapModel m) |> id
+        TwoWayValidateSpec (unmapModel >> get, boxedSet, unmapModel >> validate)
+    | TwoWayIfValidSpec (get, set) ->
+        let boxedSet v m = set v (unmapModel m) |> Result.map id
+        TwoWayIfValidSpec (unmapModel >> get, boxedSet)
+    | CmdSpec (exec, canExec) -> CmdSpec (unmapModel >> exec >> id, unbox >> canExec)
+    | CmdIfValidSpec exec -> CmdIfValidSpec (unmapModel >> exec >> Result.map id)
+    | ParamCmdSpec (exec, canExec, autoRequery) ->
+        let boxedExec p m = exec p (unmapModel m) |> id
+        let boxedCanExec p m = canExec p (unbox m)
+        ParamCmdSpec (boxedExec, boxedCanExec, autoRequery)
+    | SubModelSpec (getModel, getBindings, toMsg) ->
+        SubModelSpec (unmapModel >> getModel, getBindings, toMsg >> unbox)
+    | SubModelSeqSpec (getModel, isSame, getBindings, toMsg) ->
+        SubModelSeqSpec (unmapModel >> getModel, isSame, getBindings, toMsg >> unbox)
+    | MultiSubModelSeqSpec (getModels, getId, subModelSpecs) ->
+        let subModelSpecs' =
+            subModelSpecs
+            |> List.map (fun (tryGetModel, bindings, toMsg) ->
+                tryGetModel, bindings, toMsg >> unbox)
+        MultiSubModelSeqSpec (unmapModel >> getModels, getId, subModelSpecs')
 
 /// A command that optionally hooks into CommandManager.RequerySuggested to
 /// automatically trigger CanExecuteChanged whenever the CommandManager detects

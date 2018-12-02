@@ -43,6 +43,12 @@ type Binding<'model, 'msg> =
       * getId: (obj -> obj)
       * getBindings: (unit -> BindingSpec<obj, obj> list)
       * toMsg: (obj * obj -> 'msg)
+  | MultiSubModelSeq of
+    vms: ObservableCollection<ViewModel<obj, obj>>
+      * getModels: ('model -> obj seq)
+      * getId: (obj -> obj)
+      * subModelSpecs: ((obj -> obj option) * (*(obj -> obj) **) (unit -> BindingSpec<obj, obj> list) * (obj * obj -> 'msg)) list
+      
 
 
 and [<AllowNullLiteral>] ViewModel<'model, 'msg>
@@ -126,6 +132,17 @@ and [<AllowNullLiteral>] ViewModel<'model, 'msg>
           )
           |> ObservableCollection
         SubModelSeq (vms, getModels, getId, getBindings, toMsg)
+    | MultiSubModelSeqSpec (getModels, getId, subModelSpecs) ->
+        let vms =
+          getModels initialModel
+          |> Seq.map (fun m ->
+               let (_, getBindings, toMsg) =
+                  subModelSpecs
+                  |> List.find (fun (tryGetSubModel',_ ,_) -> tryGetSubModel' m |> Option.isSome)
+               ViewModel(m, (fun msg -> toMsg (getId m, msg) |> dispatch), getBindings (), config, uiDispatch)
+          )
+          |> ObservableCollection
+        MultiSubModelSeq (vms, getModels, getId, subModelSpecs)
 
   let setInitialError name = function
     | TwoWayValidate (_, _, validate) ->
@@ -236,6 +253,37 @@ and [<AllowNullLiteral>] ViewModel<'model, 'msg>
             vms.Move(oldIdx, newIdx)
         )
         false
+    | MultiSubModelSeq (vms, getModels, getId, subModelSpecs) ->
+        let newSubModels = getModels newModel
+        uiDispatch (fun () ->
+          // Prune and update existing models
+          let newLookup = Dictionary<_,_>()
+          for m in newSubModels do newLookup.Add(getId m, m)
+          for vm in vms |> Seq.toList do
+            match newLookup.TryGetValue (getId vm.CurrentModel) with
+            | false, _ -> vms.Remove(vm) |> ignore
+            | true, newSubModel -> vm.UpdateModel newSubModel
+          // Add new models that don't currently exist
+          let modelsToAdd =
+            newSubModels
+            |> Seq.filter (fun m ->
+                 vms |> Seq.exists (fun vm -> getId m = getId vm.CurrentModel) |> not
+            )
+          for m in modelsToAdd do
+            let (_, getBindings, toMsg) =
+                  subModelSpecs
+                  |> List.find (fun (tryGetSubModel', _,_) -> tryGetSubModel' m |> Option.isSome)
+            vms.Add <| ViewModel(m, (fun msg -> toMsg (getId m, msg) |> dispatch), getBindings (), config, uiDispatch)
+          // Reorder according to new model list
+          for newIdx, newSubModel in newSubModels |> Seq.indexed do
+            let oldIdx =
+              vms
+              |> Seq.indexed
+              |> Seq.find (fun (_, vm) -> getId newSubModel = getId vm.CurrentModel)
+              |> fst
+            vms.Move(oldIdx, newIdx)
+        )
+        false
 
   /// Returns the command associated with a command binding if the command's
   /// CanExecuteChanged should be triggered.
@@ -248,7 +296,8 @@ and [<AllowNullLiteral>] ViewModel<'model, 'msg>
     | TwoWayValidate _
     | TwoWayIfValid _
     | SubModel _
-    | SubModelSeq _ ->
+    | SubModelSeq _
+    | MultiSubModelSeq _->
         None
     | Cmd (cmd, canExec) ->
         if canExec newModel = canExec currentModel then None else Some cmd
@@ -309,7 +358,8 @@ and [<AllowNullLiteral>] ViewModel<'model, 'msg>
           | ParamCmd cmd ->
               box cmd
           | SubModel (vm, _, _, _) -> !vm |> Option.toObj |> box
-          | SubModelSeq (vms, _, _, _, _) -> box vms
+          | SubModelSeq (vms, _, _, _, _)
+          | MultiSubModelSeq (vms, _, _, _)-> box vms
         true
 
   override __.TrySetMember (binder, value) =
@@ -334,7 +384,8 @@ and [<AllowNullLiteral>] ViewModel<'model, 'msg>
         | CmdIfValid _
         | ParamCmd _
         | SubModel _
-        | SubModelSeq _ ->
+        | SubModelSeq _
+        | MultiSubModelSeq _ ->
             log "[VM] TrySetMember FAILED: Binding %s is read-only" binder.Name
     // This function should always return false, otherwise the UI may execute a
     // subsequent get which may may return the old value
