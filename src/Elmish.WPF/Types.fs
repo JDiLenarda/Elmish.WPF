@@ -83,36 +83,38 @@ module BindingSpecData =
                 tryGetModel, bindings, toMsg >> unbox)
         MultiSubModelSeqSpec (unbox >> getModels, getId, subModelSpecs')
 
-  let map (unmapModel: '_model -> 'model)
-          //(mapModel: 'model -> '_model)
-          : BindingSpecData<'model, 'msg> -> BindingSpecData<'_model, 'msg> = function
-    | OneWaySpec get -> OneWaySpec (unmapModel >> get)
-    | OneWayLazySpec (get, map, equals) -> OneWayLazySpec (unmapModel >> get, map, equals)
-    | OneWaySeqSpec (get, getId, equals) -> OneWaySeqSpec (unmapModel >> get, getId, equals)
-    | TwoWaySpec (get, set) ->
-        TwoWaySpec (unmapModel >> get, (fun v m -> set v (unmapModel m) |> id))
-    | TwoWayValidateSpec (get, set, validate) ->
-        let boxedSet v m = set v (unmapModel m) |> id
-        TwoWayValidateSpec (unmapModel >> get, boxedSet, unmapModel >> validate)
-    | TwoWayIfValidSpec (get, set) ->
-        let boxedSet v m = set v (unmapModel m) |> Result.map id
-        TwoWayIfValidSpec (unmapModel >> get, boxedSet)
-    | CmdSpec (exec, canExec) -> CmdSpec (unmapModel >> exec >> id, unbox >> canExec)
-    | CmdIfValidSpec exec -> CmdIfValidSpec (unmapModel >> exec >> Result.map id)
-    | ParamCmdSpec (exec, canExec, autoRequery) ->
-        let boxedExec p m = exec p (unmapModel m) |> id
-        let boxedCanExec p m = canExec p (unbox m)
-        ParamCmdSpec (boxedExec, boxedCanExec, autoRequery)
-    | SubModelSpec (getModel, getBindings, toMsg) ->
-        SubModelSpec (unmapModel >> getModel, getBindings, toMsg >> unbox)
-    | SubModelSeqSpec (getModel, isSame, getBindings, toMsg) ->
-        SubModelSeqSpec (unmapModel >> getModel, isSame, getBindings, toMsg >> unbox)
-    | MultiSubModelSeqSpec (getModels, getId, subModelSpecs) ->
-        let subModelSpecs' =
-            subModelSpecs
-            |> List.map (fun (tryGetModel, bindings, toMsg) ->
-                tryGetModel, bindings, toMsg >> unbox)
-        MultiSubModelSeqSpec (unmapModel >> getModels, getId, subModelSpecs')
+  let map (mapModel: '_model -> 'model)
+          (mapMsg: 'msg -> '_msg)
+          (bindingSpecData: BindingSpecData<'model, 'msg>)
+          : BindingSpecData<'_model, '_msg> =
+    match bindingSpecData with
+      | OneWaySpec get -> OneWaySpec (mapModel >> get)
+      | OneWayLazySpec (get, map, equals) -> OneWayLazySpec (mapModel >> get, map, equals)
+      | OneWaySeqSpec (get, getId, equals) -> OneWaySeqSpec (mapModel >> get, getId, equals)
+      | TwoWaySpec (get, set) ->
+          TwoWaySpec (mapModel >> get, (fun v m -> set v (mapModel m) |> mapMsg))
+      | TwoWayValidateSpec (get, set, validate) ->
+          let boxedSet v m = set v (mapModel m) |> mapMsg
+          TwoWayValidateSpec (mapModel >> get, boxedSet, mapModel >> validate)
+      | TwoWayIfValidSpec (get, set) ->
+          let boxedSet v m = set v (mapModel m) |> Result.map mapMsg
+          TwoWayIfValidSpec (mapModel >> get, boxedSet)
+      | CmdSpec (exec, canExec) -> CmdSpec (mapModel >> exec >> mapMsg, unbox >> canExec)
+      | CmdIfValidSpec exec -> CmdIfValidSpec (mapModel >> exec >> Result.map mapMsg)
+      | ParamCmdSpec (exec, canExec, autoRequery) ->
+          let boxedExec p m = exec p (mapModel m) |> mapMsg
+          let boxedCanExec p m = canExec p (unbox mapMsg)
+          ParamCmdSpec (boxedExec, boxedCanExec, autoRequery)
+      | SubModelSpec (getModel, getBindings, toMsg) ->
+          SubModelSpec (mapModel >> getModel, getBindings, toMsg >> unbox)
+      | SubModelSeqSpec (getModel, isSame, getBindings, toMsg) ->
+          SubModelSeqSpec (mapModel >> getModel, isSame, getBindings, toMsg >> unbox)
+      | MultiSubModelSeqSpec (getModels, getId, subModelSpecs) ->
+          let subModelSpecs' =
+              subModelSpecs
+              |> List.map (fun (tryGetModel, bindings, toMsg) ->
+                  tryGetModel, bindings, toMsg >> unbox)
+          MultiSubModelSeqSpec (mapModel >> getModels, getId, subModelSpecs')
 
 /// A command that optionally hooks into CommandManager.RequerySuggested to
 /// automatically trigger CanExecuteChanged whenever the CommandManager detects

@@ -292,9 +292,7 @@ module Binding =
         bindings ()
         |> List.map (fun spec ->
              {  Name = spec.Name;
-                Data = spec.Data
-                       |> BindingSpecData.map (tryGetSubModel >> Option.get)
-                       |> BindingSpecData.box  }
+                Data = spec.Data |> BindingSpecData.map (unbox >> tryGetSubModel >> Option.get) box }
         )
       let boxedToMsg (id: obj, msg: obj) = toMsg (unbox id, unbox msg)
       let boxedGetSubModel = unbox >> tryGetSubModel >> Option.map box
